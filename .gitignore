@@ -26,3 +26,4 @@ milestones/
 docs/
 testdata/
 main
+!internal/
