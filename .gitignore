@@ -1,0 +1,27 @@
+# Binaries
+/puffer
+/bin/
+*.exe
+*.test
+
+# Test and coverage output
+*.out
+coverage.*
+
+# Local data (WAL, index files, cache, MinIO)
+/data/
+/testdata/*
+!/testdata/.gitkeep
+
+# Editors and OS
+.DS_Store
+.idea/
+.vscode/
+*.swp
+
+AGENTS.md
+CLAUDE.md
+ROADMAP.md
+milestones/
+docs/
+testdata/
