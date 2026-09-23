@@ -40,10 +40,10 @@ func (db* DB) Upsert(v Vector) error{
     return nil
 }
 
-func (db* DB) delete(key string){
+func (db* DB) Delete(key string){
 	delete(db.vectors, key)
 }
 
-func (db* DB) count() int{
+func (db* DB) Count() int{
 	return len(db.vectors)
 }
