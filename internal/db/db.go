@@ -58,3 +58,7 @@ func (db *DB) Count() int {
 	l := len(db.vectors)
 	return l
 }
+
+func (db *DB) Dim() int {
+	return db.dim
+}

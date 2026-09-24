@@ -39,4 +39,52 @@ Don't create a folder until the milestone that needs it.
 
 ## Running
 
-Nothing to run yet. You'll add the commands here once they exist.
+Start the server (128-dim vectors, port 8080):
+
+```bash
+go run ./cmd/puffer
+```
+
+### curl examples
+
+Write a vector (128 floats — here we pad with zeros for a short example; real requests need all 128):
+
+```bash
+# build a 128-length vector in jq, then write
+VECTOR=$(python3 -c "import json; print(json.dumps([0.1]*128))")
+
+curl -s -X POST http://localhost:8080/write \
+  -H 'Content-Type: application/json' \
+  -d "{\"id\": \"doc-1\", \"vector\": $VECTOR}"
+
+curl -s -X POST http://localhost:8080/write \
+  -H 'Content-Type: application/json' \
+  -d "{\"id\": \"doc-2\", \"vector\": $VECTOR}"
+```
+
+Query top 2 similar vectors:
+
+```bash
+curl -s -X POST http://localhost:8080/query \
+  -H 'Content-Type: application/json' \
+  -d "{\"vector\": $VECTOR, \"k\": 2}"
+```
+
+Error cases:
+
+```bash
+# bad JSON
+curl -s -X POST http://localhost:8080/write \
+  -H 'Content-Type: application/json' \
+  -d 'not json'
+
+# wrong vector length
+curl -s -X POST http://localhost:8080/write \
+  -H 'Content-Type: application/json' \
+  -d '{"id": "bad", "vector": [1, 2, 3]}'
+
+# k <= 0
+curl -s -X POST http://localhost:8080/query \
+  -H 'Content-Type: application/json' \
+  -d "{\"vector\": $VECTOR, \"k\": 0}"
+```

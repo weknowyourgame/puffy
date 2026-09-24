@@ -13,8 +13,8 @@ import (
 */
 
 type Result struct {
-	Key   string
-	Score float32
+	Key   string  `json:"id"`
+	Score float32 `json:"score"`
 }
 
 /*
