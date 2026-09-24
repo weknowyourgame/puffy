@@ -26,6 +26,8 @@ func (db *DB) Query(v Vector, k int) ([]Result, error) {
 	}
 	results := make(ResultHeap, 0, k)
 
+	db.mu.RLock()
+	defer db.mu.RUnlock()
 	for key, val := range db.vectors {
 		similarity, _ := CosineSimilarity(v.Values, val)
 		if results.Len() < k {

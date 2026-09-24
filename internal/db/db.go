@@ -1,49 +1,60 @@
 package db
 
-import "fmt"
+import (
+	"fmt"
+	"sync"
+)
+
 /*
- Vector struct stores in a kv pair
- along with a string key (hash later)
- and the dimensions it will be stored in
+Vector struct stores in a kv pair
+along with a string key (hash later)
+and the dimensions it will be stored in
 */
 type DB struct {
 	vectors map[string][]float32
-	dim int
+	dim     int
+	mu      sync.RWMutex
 }
 
 type Dimension int
 
 const (
-    Dim128 Dimension = 128
-    Dim256 Dimension = 256
-    Dim512 Dimension = 512
+	Dim128 Dimension = 128
+	Dim256 Dimension = 256
+	Dim512 Dimension = 512
 )
 
 type Vector struct {
-    Key    string
-    Values []float32
+	Key    string
+	Values []float32
 }
 
 func New(dim Dimension) *DB {
-	return &DB {
+	return &DB{
 		vectors: make(map[string][]float32),
-		dim:	 int(dim),
+		dim:     int(dim),
 	}
 }
 
-func (db* DB) Upsert(v Vector) error{
+func (db *DB) Upsert(v Vector) error {
 	if len(v.Values) != db.dim {
-        return fmt.Errorf("dimension mismatch")
-    }
-
+		return fmt.Errorf("dimension mismatch")
+	}
+	db.mu.Lock()
+	defer db.mu.Unlock()
 	db.vectors[v.Key] = v.Values
-    return nil
+	return nil
 }
 
-func (db* DB) Delete(key string){
+func (db *DB) Delete(key string) {
+	db.mu.Lock()
+	defer db.mu.Unlock()
 	delete(db.vectors, key)
 }
 
-func (db* DB) Count() int{
-	return len(db.vectors)
+func (db *DB) Count() int {
+	db.mu.RLock()
+	defer db.mu.RUnlock()
+	l := len(db.vectors)
+	return l
 }
