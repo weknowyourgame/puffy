@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"hash/crc32"
+	"io"
 	"math"
 	"os"
 	"strconv"
@@ -12,8 +13,8 @@ import (
 )
 
 type Wal interface {
-	Encode(name string, data []byte) (e error)
-	Decode(name string) (data []byte, e error)
+	Encode(seq uint64, ops []Operation) ([]byte, error)
+	Decode(data []byte) (uint64, []Operation, error)
 }
 
 type OpType int
@@ -32,9 +33,12 @@ const (
 const Path string = "wal"
 
 const (
-	Upsert OpType = 0
-	Delete OpType = 1
+	Upsert OpType = iota
+	Delete
 )
+
+// magic(4) + version(2) + seq(8) + numOps(4) + checksum(4)
+const minRecordLen = 4 + 2 + 8 + 4 + 4
 
 type Entry struct {
 	name string
@@ -49,13 +53,16 @@ func Encode(seq uint64, ops []Operation) ([]byte, error) {
 	var buf bytes.Buffer
 	buf.Write(header)
 
+	// Encode operations
 	for _, op := range ops {
+		// Encode op types & values
 		err := EncodeOperation(&buf, op)
 		if err != nil {
 			return nil, err
 		}
 	}
 
+	// Encode checksum
 	checksum := crc32.ChecksumIEEE(buf.Bytes())
 
 	var b4 [4]byte
@@ -66,11 +73,20 @@ func Encode(seq uint64, ops []Operation) ([]byte, error) {
 }
 
 func Decode(data []byte) (uint64, []Operation, error) {
+	if len(data) < minRecordLen {
+		return 0, nil, errors.New("record too short")
+	}
+
 	r := bytes.NewReader(data)
 
 	// Magic
 	magic := make([]byte, 4)
-	r.Read(magic)
+	if _, err := io.ReadFull(r, magic); err != nil {
+		return 0, nil, err
+	}
+	if string(magic) != Magic {
+		return 0, nil, errors.New("bad magic: not a wal record")
+	}
 
 	// Version
 	// version, _ := r.ReadByte()
@@ -89,6 +105,7 @@ func Decode(data []byte) (uint64, []Operation, error) {
 	ops := make([]Operation, 0, numOps)
 
 	for i := uint32(0); i < numOps; i++ {
+		// Decode op types & values
 		op, err := DecodeOperation(r)
 		if err != nil {
 			return 0, nil, err
@@ -132,6 +149,10 @@ func DecodeOperation(r *bytes.Reader) (Operation, error) {
 
 	idLen := binary.LittleEndian.Uint16(b2[:])
 
+	if int64(idLen) > int64(r.Len()) {
+		return op, errors.New("id length exceeds remaining data")
+	}
+
 	// ID
 	id := make([]byte, idLen)
 	_, err = r.Read(id)
@@ -150,6 +171,11 @@ func DecodeOperation(r *bytes.Reader) (Operation, error) {
 		}
 
 		vectorLen := binary.LittleEndian.Uint32(b4[:])
+
+		if int64(vectorLen) > int64(r.Len())/4 {
+			return op, errors.New("vector length exceeds remaining data")
+		}
+
 		op.Values = make([]float32, vectorLen)
 
 		for i := uint32(0); i < vectorLen; i++ {
@@ -176,7 +202,8 @@ func EncodeHeader(seq uint64, ops []Operation) ([]byte, error) {
 	// 	return nil, err
 	// }
 
-	seq++
+	// allocating the sequence number isn't the encoder's job
+	// seq++
 	numOps := len(ops)
 
 	buf.WriteString(Magic)
