@@ -89,7 +89,14 @@ func Decode(data []byte) (uint64, []Operation, error) {
 	}
 
 	// Version
-	// version, _ := r.ReadByte()
+	var b2 [2]byte
+	if _, err := io.ReadFull(r, b2[:]); err != nil {
+		return 0, nil, err
+	}
+	version := binary.LittleEndian.Uint16(b2[:])
+	if version != Version {
+		return 0, nil, errors.New("unsupported wal version")
+	}
 
 	// Sequence
 	var b8 [8]byte
