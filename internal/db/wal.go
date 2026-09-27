@@ -3,10 +3,12 @@ package db
 import (
 	"bytes"
 	"encoding/binary"
+	"errors"
 	"hash/crc32"
 	"math"
 	"os"
 	"strconv"
+	"strings"
 )
 
 type Wal interface {
@@ -24,8 +26,10 @@ type Operation struct {
 
 const (
 	Magic   string = "puff"
-	Version uint8  = 0
+	Version uint16 = 0
 )
+
+const Path string = "wal"
 
 const (
 	Upsert OpType = 0
@@ -36,8 +40,8 @@ type Entry struct {
 	name string
 }
 
-func Encode(ops []Operation) ([]byte, error) {
-	header, err := EncodeHeader(ops)
+func Encode(seq uint64, ops []Operation) ([]byte, error) {
+	header, err := EncodeHeader(seq, ops)
 	if err != nil {
 		return nil, err
 	}
@@ -61,28 +65,125 @@ func Encode(ops []Operation) ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
-func Decode(name string) {
+func Decode(data []byte) (uint64, []Operation, error) {
+	r := bytes.NewReader(data)
 
+	// Magic
+	magic := make([]byte, 4)
+	r.Read(magic)
+
+	// Version
+	// version, _ := r.ReadByte()
+
+	// Sequence
+	var b8 [8]byte
+	r.Read(b8[:])
+	seq := binary.LittleEndian.Uint64(b8[:])
+
+	// Number of operations
+	var b4 [4]byte
+	r.Read(b4[:])
+	numOps := binary.LittleEndian.Uint32(b4[:])
+
+	// Operations
+	ops := make([]Operation, 0, numOps)
+
+	for i := uint32(0); i < numOps; i++ {
+		op, err := DecodeOperation(r)
+		if err != nil {
+			return 0, nil, err
+		}
+		ops = append(ops, op)
+	}
+
+	// Checksum
+	r.Read(b4[:])
+	stored := binary.LittleEndian.Uint32(b4[:])
+
+	actual := crc32.ChecksumIEEE(data[:len(data)-4])
+
+	if stored != actual {
+		return 0, nil, errors.New("checksum mismatch")
+	}
+
+	return seq, ops, nil
 }
 
-func AddCheckSum() {
+// func AddCheckSum() {
 
+// }
+
+func DecodeOperation(r *bytes.Reader) (Operation, error) {
+	var op Operation
+
+	// Type
+	t, err := r.ReadByte()
+	if err != nil {
+		return op, err
+	}
+	op.Type = OpType(t)
+
+	// ID length
+	var b2 [2]byte
+	_, err = r.Read(b2[:])
+	if err != nil {
+		return op, err
+	}
+
+	idLen := binary.LittleEndian.Uint16(b2[:])
+
+	// ID
+	id := make([]byte, idLen)
+	_, err = r.Read(id)
+	if err != nil {
+		return op, err
+	}
+	op.ID = string(id)
+
+	// Values — only for Upsert
+	if op.Type == Upsert {
+		var b4 [4]byte
+
+		_, err = r.Read(b4[:])
+		if err != nil {
+			return op, err
+		}
+
+		vectorLen := binary.LittleEndian.Uint32(b4[:])
+		op.Values = make([]float32, vectorLen)
+
+		for i := uint32(0); i < vectorLen; i++ {
+			_, err = r.Read(b4[:])
+			if err != nil {
+				return op, err
+			}
+
+			bits := binary.LittleEndian.Uint32(b4[:])
+			op.Values[i] = math.Float32frombits(bits)
+		}
+	}
+
+	return op, nil
 }
 
 // magic + ver. + sequence + numops
-func EncodeHeader(ops []Operation) ([]byte, error) {
+func EncodeHeader(seq uint64, ops []Operation) ([]byte, error) {
 	var buf bytes.Buffer
 
-	last, err := LastEntry()
-	if err != nil {
-		return nil, err
-	}
+	// Cant rely on I/O
+	// last, err := LastEntry()
+	// if err != nil {
+	// 	return nil, err
+	// }
 
-	seq := last + 1
+	seq++
 	numOps := len(ops)
 
 	buf.WriteString(Magic)
-	buf.WriteByte(Version)
+
+	var b2 [2]byte
+	binary.LittleEndian.PutUint16(b2[:], Version)
+	buf.Write(b2[:])
 
 	var b8 [8]byte
 	binary.LittleEndian.PutUint64(b8[:], seq)
@@ -121,7 +222,7 @@ func EncodeOperation(buf *bytes.Buffer, op Operation) error {
 
 // dont count all the enteries instead use the last entry
 func LastEntry() (uint64, error) {
-	entries, err := os.ReadDir("wal")
+	entries, err := os.ReadDir(Path)
 	if err != nil {
 		return 0, err
 	}
@@ -132,7 +233,8 @@ func LastEntry() (uint64, error) {
 		return 0, nil
 	}
 
-	n, err := strconv.ParseUint(entries[len(entries)-1].Name(), 10, 64)
+	entry := strings.TrimSuffix(entries[len(entries)-1].Name(), ".wal")
+	n, err := strconv.ParseUint(entry, 10, 64)
 	if err != nil {
 		return 0, err
 	}
