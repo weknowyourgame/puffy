@@ -4,10 +4,17 @@ package wal
 
 import (
 	"fmt"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/weknowyourgame/puffer/internal/db"
 	"github.com/weknowyourgame/puffer/internal/store"
+)
+
+const (
+	maxBatch = 100
+	interval = 5 * time.Millisecond
 )
 
 type Request struct {
@@ -20,6 +27,35 @@ type Writer struct {
 	store store.Store
 	db    *db.DB
 	seq   uint64
+}
+
+func NewWriter(s store.Store, d *db.DB) (*Writer, error) {
+	keys, err := s.List("wal/")
+	if err != nil {
+		return nil, err
+	}
+
+	// recover the highest existing sequence number
+	var seq uint64
+	for _, key := range keys {
+		name := strings.TrimSuffix(strings.TrimPrefix(key, "wal/"), ".bin")
+		n, err := strconv.ParseUint(name, 10, 64)
+		if err != nil {
+			return nil, err
+		}
+		if n > seq {
+			seq = n
+		}
+	}
+
+	w := &Writer{
+		reqs:  make(chan Request, maxBatch),
+		store: s,
+		db:    d,
+		seq:   seq,
+	}
+	go w.Run(maxBatch, interval)
+	return w, nil
 }
 
 // make a reply channel send Request{ops, reply} into w.reqs return the value received from reply
@@ -35,7 +71,6 @@ func (w *Writer) flush(batch []Request) {
 		ops = append(ops, req.ops...)
 	}
 
-	w.seq++
 	err := w.write(ops)
 
 	for _, req := range batch {
@@ -44,11 +79,28 @@ func (w *Writer) flush(batch []Request) {
 }
 
 func (w *Writer) write(ops []Operation) error {
-	data, err := Encode(w.seq, ops)
+	next := w.seq + 1
+
+	// file first: durable on disk
+	data, err := Encode(next, ops)
 	if err != nil {
 		return err
 	}
-	return w.store.Create(fmt.Sprintf("wal/%020d.bin", w.seq), data)
+	if err := w.store.Create(fmt.Sprintf("wal/%020d.bin", next), data); err != nil {
+		return err
+	}
+	w.seq = next // only advance once Create succeeded, so no gaps
+
+	// then memory: visible to queries
+	for _, op := range ops {
+		switch op.Type {
+		case Upsert:
+			w.db.Upsert(db.Vector{Key: op.ID, Values: op.Values})
+		case Delete:
+			w.db.Delete(op.ID)
+		}
+	}
+	return nil
 }
 
 func (w *Writer) Run(maxBatch int, interval time.Duration) {
