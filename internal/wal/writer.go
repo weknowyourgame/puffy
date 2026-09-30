@@ -1,6 +1,7 @@
 package wal
 
-// N writer go routines (has return error) -> 1 shared chan request -> 1 flusher go routine -> Store.create
+// N writer go routines (has return error) ->
+// 1 shared chan request -> 1 flusher go routine -> Store.create
 
 import (
 	"fmt"
