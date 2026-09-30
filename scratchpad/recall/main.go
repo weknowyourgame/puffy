@@ -1,93 +1,111 @@
 package main
 
-// package scratchpad_test
-
 import (
 	"encoding/binary"
 	"fmt"
 	"math"
 	"os"
+	"strconv"
+
+	"github.com/weknowyourgame/puffer/internal/db"
 )
 
-// import (
-// 	"fmt"
-// 	"sync"
-// )
-
-// type Request2 struct {
-// 	value int
-// 	reply chan int
-// }
-
-// func main() {
-// 	ch := make(chan Request)
-
-// 	var wg sync.WaitGroup
-
-// 	// Start 10 goroutines
-// 	for i := 0; i < 10; i++ {
-// 		wg.Add(1)
-
-// 		go func() {
-// 			defer wg.Done()
-
-// 			reply := make(chan int)
-
-// 			ch <- Request{
-// 				value: i,
-// 				reply: reply,
-// 			}
-
-// 			answer := <-reply
-
-// 			fmt.Println(answer)
-// 		}()
-// 	}
-
-// 	go func() {
-// 		for req := range ch {
-// 			result := req.value * 2
-
-// 			req.reply <- result
-// 		}
-// 	}()
-
-// 	wg.Wait()
-
-// 	close(ch)
-// }
-
 func main() {
-	if err := scratchpad("../testdata/siftsmall/siftsmall_base.fvecs"); err != nil {
-		fmt.Println("error:", err)
+	base, dim, _, err := LoadFvecs("../../testdata/siftsmall/siftsmall_base.fvecs")
+	if err != nil {
+		fmt.Println("load base:", err)
+		return
 	}
-}
-
-func scratchpad(filepath string) error {
-	file, _ := os.ReadFile(filepath)
-
-	// Read first 4 bytes -> gives us the dim
-	dim := int(binary.LittleEndian.Uint32(file[:4]))
-	recordSize := 4 + dim*4
-
-	if len(file)%recordSize != 0 {
-		return fmt.Errorf("corrupt file: size is not divisible by record size")
+	queries, _, _, err := LoadFvecs("../../testdata/siftsmall/siftsmall_query.fvecs")
+	if err != nil {
+		fmt.Println("load queries:", err)
+		return
+	}
+	gt, gtDim, _, err := LoadIvecs("../../testdata/siftsmall/siftsmall_groundtruth.ivecs")
+	if err != nil {
+		fmt.Println("load ground truth:", err)
+		return
 	}
 
-	vectorCount := len(file) / recordSize
+	d := db.New(128)
 
-	fmt.Println("vector count:", vectorCount)
+	// Load 10,000 base vectors into the DB
+	for i := 0; i < 10000; i++ {
+		d.Upsert(db.Vector{Key: strconv.Itoa(i), Values: base[i*dim : (i+1)*dim]})
+	}
 
-	data := make([]float32, vectorCount*dim)
-	for i := 0; i < vectorCount; i++ {
-		offset := i * recordSize
-		for j := 0; j < dim; j++ {
-			b := offset + 4 + j*4
-			bits := binary.LittleEndian.Uint32(file[b : b+4])
-			data[i*dim+j] = math.Float32frombits(bits)
-			// fmt.Println(data[0:20])
-			// fmt.Println(data[128:148])
+	// Query and measure recall@10
+	hits := 0
+	for q := 0; q < 100; q++ {
+		qv := queries[q*dim : (q+1)*dim]
+		results, err := d.Query(db.Vector{Values: qv}, 10)
+		if err != nil {
+			fmt.Println("query error:", err)
+			return
+		}
+
+		truth := make(map[string]bool, 10)
+		for _, id := range gt[q*gtDim : q*gtDim+10] {
+			truth[strconv.Itoa(int(id))] = true
+		}
+
+		for _, r := range results {
+			if truth[r.Key] {
+				hits++
+			}
 		}
 	}
-	return nil
+
+	recall := float64(hits) / float64(100*10)
+	fmt.Printf("recall@10 = %.4f\n", recall)
+}
+
+func LoadFvecs(filepath string) (base []float32, dim int, nbase int, err error) {
+	file, err := os.ReadFile(filepath)
+	if err != nil {
+		return nil, 0, 0, err
+	}
+
+	offset := 0
+	for offset < len(file) {
+		d := int(binary.LittleEndian.Uint32(file[offset : offset+4]))
+		offset += 4
+
+		for i := 0; i < d; i++ {
+			bits := binary.LittleEndian.Uint32(file[offset : offset+4])
+			base = append(base, math.Float32frombits(bits))
+			offset += 4
+		}
+
+		dim = d
+		nbase++
+	}
+
+	return base, dim, nbase, nil
+}
+
+// LoadIvecs reads a .ivecs file: each vector is a 4-byte dim header
+// followed by dim int32 values. Used for ground-truth neighbor IDs.
+func LoadIvecs(filepath string) (base []int32, dim int, nbase int, err error) {
+	file, err := os.ReadFile(filepath)
+	if err != nil {
+		return nil, 0, 0, err
+	}
+
+	offset := 0
+	for offset < len(file) {
+		d := int(binary.LittleEndian.Uint32(file[offset : offset+4]))
+		offset += 4
+
+		for i := 0; i < d; i++ {
+			bits := binary.LittleEndian.Uint32(file[offset : offset+4])
+			base = append(base, int32(bits))
+			offset += 4
+		}
+
+		dim = d
+		nbase++
+	}
+
+	return base, dim, nbase, nil
 }
