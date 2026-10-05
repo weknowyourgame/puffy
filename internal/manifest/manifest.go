@@ -7,7 +7,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/weknowyourgame/puffer/internal/store"
+	"github.com/weknowyourgame/puffy/internal/store"
 )
 
 // See docs/manifest.md. Every version is its own file: manifest/<version>.json.

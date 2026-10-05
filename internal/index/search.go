@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"sort"
 
-	"github.com/weknowyourgame/puffer/internal/db"
+	"github.com/weknowyourgame/puffy/internal/db"
 )
 
 /*

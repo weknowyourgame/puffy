@@ -5,7 +5,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/weknowyourgame/puffer/internal/store"
+	"github.com/weknowyourgame/puffy/internal/store"
 )
 
 func TestNoManifest(t *testing.T) {

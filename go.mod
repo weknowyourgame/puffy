@@ -1,4 +1,4 @@
-module github.com/weknowyourgame/puffer
+module github.com/weknowyourgame/puffy
 
 go 1.26.4
 

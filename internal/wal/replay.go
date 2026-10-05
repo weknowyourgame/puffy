@@ -5,7 +5,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/weknowyourgame/puffer/internal/store"
+	"github.com/weknowyourgame/puffy/internal/store"
 )
 
 // Replay decodes every WAL file with a sequence number greater than `after`,

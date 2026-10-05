@@ -8,7 +8,7 @@ stored via `math.Float32bits`.
 
 | Field          | Bytes    | Notes                                    |
 | -------------- | -------- | ---------------------------------------- |
-| Magic          | 4        | fixed constant, identifies a puffer WAL  |
+| Magic          | 4        | fixed constant, identifies a puffy WAL  |
 | Version        | 2        | format version, checked before parsing   |
 | Sequence       | 8        | uint64, matches the filename             |
 | Num operations | 4        | uint32, how many operations follow       |

@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"math/rand"
 
-	"github.com/weknowyourgame/puffer/internal/db"
+	"github.com/weknowyourgame/puffy/internal/db"
 )
 
 // kmeans runs on a flat slab: data holds n vectors of dim floats each,

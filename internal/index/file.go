@@ -7,7 +7,7 @@ import (
 	"math"
 	"time"
 
-	"github.com/weknowyourgame/puffer/internal/store"
+	"github.com/weknowyourgame/puffy/internal/store"
 )
 
 // See docs/index-format.md for the layout of these two files.

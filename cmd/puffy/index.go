@@ -8,9 +8,9 @@ import (
 	"math"
 	"sort"
 
-	"github.com/weknowyourgame/puffer/internal/index"
-	"github.com/weknowyourgame/puffer/internal/manifest"
-	"github.com/weknowyourgame/puffer/internal/wal"
+	"github.com/weknowyourgame/puffy/internal/index"
+	"github.com/weknowyourgame/puffy/internal/manifest"
+	"github.com/weknowyourgame/puffy/internal/wal"
 )
 
 // runIndex reads the whole WAL, builds an index from the final state and writes it.

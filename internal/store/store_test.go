@@ -78,13 +78,13 @@ func TestSlowStore(t *testing.T) {
 }
 
 // Needs MinIO: docker compose up -d, create the bucket, then
-// PUFFER_TEST_BUCKET=puffer PUFFER_S3_ENDPOINT=http://localhost:9000 AWS_ACCESS_KEY_ID=puffer AWS_SECRET_ACCESS_KEY=puffer-secret go test ./internal/store
+// PUFFY_TEST_BUCKET=puffy PUFFY_S3_ENDPOINT=http://localhost:9000 AWS_ACCESS_KEY_ID=puffy AWS_SECRET_ACCESS_KEY=puffy-secret go test ./internal/store
 func TestS3Store(t *testing.T) {
-	bucket := os.Getenv("PUFFER_TEST_BUCKET")
+	bucket := os.Getenv("PUFFY_TEST_BUCKET")
 	if bucket == "" {
-		t.Skip("PUFFER_TEST_BUCKET not set")
+		t.Skip("PUFFY_TEST_BUCKET not set")
 	}
-	s, err := NewS3Store(bucket, os.Getenv("PUFFER_S3_ENDPOINT"))
+	s, err := NewS3Store(bucket, os.Getenv("PUFFY_S3_ENDPOINT"))
 	if err != nil {
 		t.Fatal(err)
 	}

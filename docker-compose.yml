@@ -1,6 +1,6 @@
 # Local S3 for milestone M6. Start with: docker compose up -d
 # S3 API:  http://localhost:9000
-# Web UI:  http://localhost:9001  (login: puffer / puffer-secret)
+# Web UI:  http://localhost:9001  (login: puffy / puffy-secret)
 services:
   minio:
     image: minio/minio:latest
@@ -9,7 +9,7 @@ services:
       - "9000:9000"
       - "9001:9001"
     environment:
-      MINIO_ROOT_USER: puffer
-      MINIO_ROOT_PASSWORD: puffer-secret
+      MINIO_ROOT_USER: puffy
+      MINIO_ROOT_PASSWORD: puffy-secret
     volumes:
       - ./data/minio:/data

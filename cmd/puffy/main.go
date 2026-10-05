@@ -12,20 +12,20 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/weknowyourgame/puffer/internal/db"
-	"github.com/weknowyourgame/puffer/internal/index"
-	"github.com/weknowyourgame/puffer/internal/manifest"
-	"github.com/weknowyourgame/puffer/internal/store"
-	"github.com/weknowyourgame/puffer/internal/wal"
+	"github.com/weknowyourgame/puffy/internal/db"
+	"github.com/weknowyourgame/puffy/internal/index"
+	"github.com/weknowyourgame/puffy/internal/manifest"
+	"github.com/weknowyourgame/puffy/internal/store"
+	"github.com/weknowyourgame/puffy/internal/wal"
 )
 
 const dataDir = "./data"
 
-// set when PUFFER_LATENCY_MS is on, so /query can report how many store calls it made
+// set when PUFFY_LATENCY_MS is on, so /query can report how many store calls it made
 var slowStore *store.Slow
 
 func main() {
-	// `puffer index` builds the index files from the WAL and exits
+	// `puffy index` builds the index files from the WAL and exits
 	if len(os.Args) > 1 && os.Args[1] == "index" {
 		runIndex(os.Args[2:])
 		return
@@ -150,7 +150,7 @@ func main() {
 	})
 
 	addr := ":8080"
-	fmt.Println("puffer listening on", addr)
+	fmt.Println("puffy listening on", addr)
 	log.Fatal(http.ListenAndServe(addr, nil))
 }
 
@@ -192,22 +192,22 @@ func respond(w http.ResponseWriter, status int, body any) {
 
 // openStore picks where the files live:
 //
-//	PUFFER_BUCKET=name   S3 (PUFFER_S3_ENDPOINT=http://localhost:9000 for MinIO)
+//	PUFFY_BUCKET=name   S3 (PUFFY_S3_ENDPOINT=http://localhost:9000 for MinIO)
 //	nothing set          the ./data folder
 //
-// PUFFER_LATENCY_MS=80 adds a delay to every call and logs the call count on exit.
+// PUFFY_LATENCY_MS=80 adds a delay to every call and logs the call count on exit.
 func openStore() store.Store {
 	var st store.Store = store.NewStore(dataDir)
 
-	if bucket := os.Getenv("PUFFER_BUCKET"); bucket != "" {
-		s3, err := store.NewS3Store(bucket, os.Getenv("PUFFER_S3_ENDPOINT"))
+	if bucket := os.Getenv("PUFFY_BUCKET"); bucket != "" {
+		s3, err := store.NewS3Store(bucket, os.Getenv("PUFFY_S3_ENDPOINT"))
 		if err != nil {
 			log.Fatal(err)
 		}
 		st = s3
 	}
 
-	if ms, err := strconv.Atoi(os.Getenv("PUFFER_LATENCY_MS")); err == nil && ms > 0 {
+	if ms, err := strconv.Atoi(os.Getenv("PUFFY_LATENCY_MS")); err == nil && ms > 0 {
 		slow := store.NewSlow(st, time.Duration(ms)*time.Millisecond)
 		slowStore = slow
 		st = slow

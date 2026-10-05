@@ -9,8 +9,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/weknowyourgame/puffer/internal/db"
-	"github.com/weknowyourgame/puffer/internal/store"
+	"github.com/weknowyourgame/puffy/internal/db"
+	"github.com/weknowyourgame/puffy/internal/store"
 )
 
 const (

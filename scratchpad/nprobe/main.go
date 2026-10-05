@@ -8,8 +8,8 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/weknowyourgame/puffer/internal/db"
-	"github.com/weknowyourgame/puffer/internal/index"
+	"github.com/weknowyourgame/puffy/internal/db"
+	"github.com/weknowyourgame/puffy/internal/index"
 )
 
 func main() {
