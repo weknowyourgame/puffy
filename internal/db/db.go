@@ -14,9 +14,12 @@ type DB struct {
 	vectors map[string][]float32
 	dim     int
 	mu      sync.RWMutex
+	metric  Metric
 }
 
 type Dimension int
+
+type Metric int
 
 const (
 	Dim128 Dimension = 128
@@ -24,12 +27,17 @@ const (
 	Dim512 Dimension = 512
 )
 
+const (
+	Cosine Metric = iota
+	L2
+)
+
 type Vector struct {
 	Key    string
 	Values []float32
 }
 
-func New(dim Dimension) *DB {
+func New(dim Dimension, m Metric) *DB {
 	return &DB{
 		vectors: make(map[string][]float32),
 		dim:     int(dim),

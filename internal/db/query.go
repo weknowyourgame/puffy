@@ -20,48 +20,57 @@ type Result struct {
 /*
 Return K top vectors from similarity search
 */
-func (db *DB) Query(v Vector, k int) ([]Result, []Result, error) {
+func (db *DB) Query(v Vector, k int) ([]Result, error) {
 	if k < 1 {
-		return nil, nil, fmt.Errorf("top k vectors should be a positive number")
+		return nil, fmt.Errorf("top k vectors should be a positive number")
 	}
-	resultsSim := make(ResultHeap, 0, k)
-	resultsL2 := make(ResultHeap, 0, k)
 
 	db.mu.RLock()
 	defer db.mu.RUnlock()
+
+	// Pick the distance function once, outside the loop.
+	var score func(a, b []float32) (float32, error)
+	negate := false
+	switch db.metric {
+	case Cosine:
+		score = CosineSimilarity
+	case L2:
+		score = L2Squared
+		negate = true // higher-is-better holds after negation
+	default:
+		return nil, fmt.Errorf("unsupported metric: %v", db.metric)
+	}
+
+	results := make(ResultHeap, 0, k)
 	for key, val := range db.vectors {
-		similarity, _ := CosineSimilarity(v.Values, val)
-		if resultsSim.Len() < k {
-			heap.Push(&resultsSim, Result{key, similarity})
-		} else if similarity > resultsSim[0].Score {
-			heap.Pop(&resultsSim)
-			heap.Push(&resultsSim, Result{key, similarity})
+		s, err := score(v.Values, val)
+		if err != nil {
+			continue // matches the previous behavior of ignoring errors; consider returning err instead
 		}
-
-		L2Distance, _ := L2Squared(v.Values, val)
-		negL2 := -L2Distance // min-heap over negated distance = max-heap over real distance
-		if resultsL2.Len() < k {
-			heap.Push(&resultsL2, Result{key, negL2})
-		} else if negL2 > resultsL2[0].Score {
-			// equivalent to: L2Distance < current worst kept distance
-			heap.Pop(&resultsL2)
-			heap.Push(&resultsL2, Result{key, negL2})
+		if negate {
+			s = -s
+		}
+		if results.Len() < k {
+			heap.Push(&results, Result{key, s})
+		} else if s > results[0].Score {
+			heap.Pop(&results)
+			heap.Push(&results, Result{key, s})
 		}
 	}
 
-	// Fix: add proper type to heap.go later
-	// undo the negation before sorting/returning
-	for i := range resultsL2 {
-		resultsL2[i].Score = -resultsL2[i].Score
+	// Undo the negation so callers see real L2 distances.
+	if negate {
+		for i := range results {
+			results[i].Score = -results[i].Score
+		}
 	}
 
-	sort.Slice(resultsSim, func(i, j int) bool {
-		return resultsSim[i].Score > resultsSim[j].Score
+	sort.Slice(results, func(i, j int) bool {
+		if negate {
+			return results[i].Score < results[j].Score // smaller distance first
+		}
+		return results[i].Score > results[j].Score // larger similarity first
 	})
 
-	sort.Slice(resultsL2, func(i, j int) bool {
-		return resultsL2[i].Score < resultsL2[j].Score
-	})
-
-	return resultsSim, resultsL2, nil
+	return results, nil
 }

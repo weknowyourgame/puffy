@@ -10,7 +10,7 @@ import (
 )
 
 func main() {
-	mydb := db.New(db.Dim128)
+	mydb := db.New(db.Dim128, db.Cosine)
 
 	http.HandleFunc("POST /write", func(w http.ResponseWriter, r *http.Request) {
 		var req struct {

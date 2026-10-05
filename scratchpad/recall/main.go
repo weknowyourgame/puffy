@@ -27,7 +27,7 @@ func main() {
 		return
 	}
 
-	d := db.New(128)
+	d := db.New(128, db.L2)
 
 	// Load 10,000 base vectors into the DB
 	for i := 0; i < 10000; i++ {
