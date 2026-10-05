@@ -9,14 +9,20 @@ import (
 	"net/http"
 	"os"
 	"sort"
+	"strconv"
+	"time"
 
 	"github.com/weknowyourgame/puffer/internal/db"
 	"github.com/weknowyourgame/puffer/internal/index"
+	"github.com/weknowyourgame/puffer/internal/manifest"
 	"github.com/weknowyourgame/puffer/internal/store"
 	"github.com/weknowyourgame/puffer/internal/wal"
 )
 
 const dataDir = "./data"
+
+// set when PUFFER_LATENCY_MS is on, so /query can report how many store calls it made
+var slowStore *store.Slow
 
 func main() {
 	// `puffer index` builds the index files from the WAL and exits
@@ -28,22 +34,25 @@ func main() {
 	nprobe := flag.Int("nprobe", 10, "how many clusters a query looks inside")
 	flag.Parse()
 
-	st := store.NewStore(dataDir)
+	st := openStore()
 
 	// The index is L2 (that is what SIFT uses), so the DB holding the recent writes is too.
 	mydb := db.New(db.Dim128, db.L2)
 
-	// Load the newest index (if there is one), then replay only the WAL entries it doesn't cover.
-	idx, err := index.Open(st)
-	if errors.Is(err, index.ErrNoIndex) {
-		idx = nil
-	} else if err != nil {
-		log.Fatal(err)
-	}
+	// The manifest says which index is live. Open only that one (if there is a manifest),
+	// then replay only the WAL entries it doesn't cover.
+	var idx *index.Index
 	var covered uint64
-	if idx != nil {
+	m, err := manifest.Latest(st)
+	if err == nil {
+		idx, err = index.Open(st, m.Index)
+		if err != nil {
+			log.Fatal(err)
+		}
 		covered = idx.Seq()
-		fmt.Println("loaded index covering wal up to", covered, "with", idx.K(), "clusters")
+		fmt.Println("manifest", m.Version, "-> index covering wal up to", covered, "with", idx.K(), "clusters")
+	} else if !errors.Is(err, manifest.ErrNoManifest) {
+		log.Fatal(err)
 	}
 	err = wal.Replay(st, covered, func(seq uint64, ops []wal.Operation) {
 		for _, op := range ops {
@@ -125,10 +134,17 @@ func main() {
 			respond(w, 400, map[string]string{"error": fmt.Sprintf("vector length %d, expected %d", len(req.Vector), mydb.Dim())})
 			return
 		}
+		before := int64(0)
+		if slowStore != nil {
+			before = slowStore.Calls()
+		}
 		results, err := search(idx, mydb, *nprobe, req.Vector, req.K)
 		if err != nil {
 			respond(w, 400, map[string]string{"error": err.Error()})
 			return
+		}
+		if slowStore != nil {
+			fmt.Println("query made", slowStore.Calls()-before, "store calls")
 		}
 		respond(w, 200, map[string]any{"results": results})
 	})
@@ -172,4 +188,29 @@ func respond(w http.ResponseWriter, status int, body any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	json.NewEncoder(w).Encode(body)
+}
+
+// openStore picks where the files live:
+//
+//	PUFFER_BUCKET=name   S3 (PUFFER_S3_ENDPOINT=http://localhost:9000 for MinIO)
+//	nothing set          the ./data folder
+//
+// PUFFER_LATENCY_MS=80 adds a delay to every call and logs the call count on exit.
+func openStore() store.Store {
+	var st store.Store = store.NewStore(dataDir)
+
+	if bucket := os.Getenv("PUFFER_BUCKET"); bucket != "" {
+		s3, err := store.NewS3Store(bucket, os.Getenv("PUFFER_S3_ENDPOINT"))
+		if err != nil {
+			log.Fatal(err)
+		}
+		st = s3
+	}
+
+	if ms, err := strconv.Atoi(os.Getenv("PUFFER_LATENCY_MS")); err == nil && ms > 0 {
+		slow := store.NewSlow(st, time.Duration(ms)*time.Millisecond)
+		slowStore = slow
+		st = slow
+	}
+	return st
 }

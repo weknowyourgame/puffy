@@ -2,14 +2,11 @@ package index
 
 import (
 	"container/heap"
-	"errors"
 	"fmt"
 	"sort"
 
 	"github.com/weknowyourgame/puffer/internal/db"
 )
-
-var ErrNoIndex = errors.New("no index found")
 
 /*
 Index groups vectors into clusters (k-means). A query only looks inside

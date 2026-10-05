@@ -5,8 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
-	"strconv"
-	"strings"
+	"time"
 
 	"github.com/weknowyourgame/puffer/internal/store"
 )
@@ -21,8 +20,10 @@ const (
 // magic(4) + version(2) + seq(8) + k(4) + dim(4)
 const headerLen = 4 + 2 + 8 + 4 + 4
 
-func centroidsName(seq uint64) string { return fmt.Sprintf("index/%020d/centroids.bin", seq) }
-func clustersName(seq uint64) string  { return fmt.Sprintf("index/%020d/clusters.bin", seq) }
+// Every build gets its own folder: index/<dir>/. dir is the wal seq plus the build time,
+// so two indexers (or a retry after a crash) never collide on file names.
+func centroidsName(dir string) string { return "index/" + dir + "/centroids.bin" }
+func clustersName(dir string) string  { return "index/" + dir + "/clusters.bin" }
 
 func encodeHeader(seq uint64, k, dim int) []byte {
 	b := make([]byte, 0, headerLen)
@@ -51,15 +52,16 @@ func decodeHeader(b []byte) (seq uint64, k int, dim int, err error) {
 }
 
 /*
-Write saves an index built in memory as two files, covering the WAL up to seq.
-clusters.bin goes first and centroids.bin last: a crash half way leaves
-no centroids.bin, and Open ignores an index without one.
+Write saves an index built in memory as two files in a new folder, covering the WAL up to seq.
+It returns the folder name, which is what the manifest points at.
+Nothing uses the files until the manifest does, so a crash half way just leaves unused files.
 */
-func (idx *Index) Write(s store.Store, seq uint64) error {
+func (idx *Index) Write(s store.Store, seq uint64) (string, error) {
 	if idx.clusterIDs == nil {
-		return errors.New("can only write an index that was built in memory")
+		return "", errors.New("can only write an index that was built in memory")
 	}
 	idx.seq = seq
+	dir := fmt.Sprintf("%020d-%d", seq, time.Now().UnixNano())
 
 	// Pack every cluster first so we know how long each one is.
 	blocks := make([][]byte, idx.k)
@@ -90,53 +92,28 @@ func (idx *Index) Write(s store.Store, seq uint64) error {
 	for _, b := range blocks {
 		out = append(out, b...)
 	}
-	if err := s.Create(clustersName(seq), out); err != nil {
-		return err
+	if err := s.Create(clustersName(dir), out); err != nil {
+		return "", err
 	}
 
 	cen := encodeHeader(seq, idx.k, idx.dim)
 	for _, v := range idx.centroids {
 		cen = binary.LittleEndian.AppendUint32(cen, math.Float32bits(v))
 	}
-	return s.Create(centroidsName(seq), cen)
+	return dir, s.Create(centroidsName(dir), cen)
 }
 
-// Open loads the newest index in the store, or returns ErrNoIndex.
+// Open loads the index in index/<dir>/. The manifest says which dir that is.
 // Only the centroids and the offset table are read now; each cluster is
 // read with ReadAt when a query needs it.
-func Open(s store.Store) (*Index, error) {
-	keys, err := s.List("index/")
+func Open(s store.Store, dir string) (*Index, error) {
+	cen, err := s.Read(centroidsName(dir))
 	if err != nil {
 		return nil, err
 	}
-
-	// keys are sorted and named by sequence number, so the last centroids file is the newest
-	latest := ""
-	for _, key := range keys {
-		if strings.HasSuffix(key, "/centroids.bin") {
-			latest = key
-		}
-	}
-	if latest == "" {
-		return nil, ErrNoIndex
-	}
-
-	dir := strings.TrimSuffix(strings.TrimPrefix(latest, "index/"), "/centroids.bin")
-	seq, err := strconv.ParseUint(dir, 10, 64)
-	if err != nil {
-		return nil, fmt.Errorf("%s: %w", latest, err)
-	}
-
-	cen, err := s.Read(centroidsName(seq))
+	seq, k, dim, err := decodeHeader(cen)
 	if err != nil {
 		return nil, err
-	}
-	hseq, k, dim, err := decodeHeader(cen)
-	if err != nil {
-		return nil, err
-	}
-	if hseq != seq {
-		return nil, errors.New("centroids.bin: sequence does not match its folder")
 	}
 	if len(cen) != headerLen+k*dim*4 {
 		return nil, errors.New("centroids.bin: wrong size")
@@ -148,7 +125,7 @@ func Open(s store.Store) (*Index, error) {
 	}
 
 	// header + offset table of clusters.bin
-	table, err := s.ReadAt(clustersName(seq), 0, headerLen+8*(k+1))
+	table, err := s.ReadAt(clustersName(dir), 0, headerLen+8*(k+1))
 	if err != nil {
 		return nil, err
 	}
@@ -166,7 +143,7 @@ func Open(s store.Store) (*Index, error) {
 
 	idx := &Index{centroids: centroids, dim: dim, k: k, seq: seq}
 	idx.loadCluster = func(c int) ([]string, []float32, error) {
-		b, err := s.ReadAt(clustersName(seq), int64(offsets[c]), int(offsets[c+1]-offsets[c]))
+		b, err := s.ReadAt(clustersName(dir), int64(offsets[c]), int(offsets[c+1]-offsets[c]))
 		if err != nil {
 			return nil, nil, err
 		}

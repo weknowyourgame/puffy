@@ -23,7 +23,9 @@ AGENTS.md
 CLAUDE.md
 ROADMAP.md
 milestones/
-docs/
+docs/journal.md
 testdata/
 main
 !internal/
+# the global gitignore ignores "MANIFEST" and macOS matches it case-insensitively
+!internal/manifest/

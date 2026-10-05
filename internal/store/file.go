@@ -38,7 +38,7 @@ func (s *FileStore) Create(name string, data []byte) error {
 	)
 	if err != nil {
 		if errors.Is(err, os.ErrExist) {
-			return err
+			return ErrExists
 		}
 		return err
 	}

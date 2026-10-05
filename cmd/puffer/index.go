@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"flag"
 	"fmt"
 	"log"
@@ -8,7 +9,7 @@ import (
 	"sort"
 
 	"github.com/weknowyourgame/puffer/internal/index"
-	"github.com/weknowyourgame/puffer/internal/store"
+	"github.com/weknowyourgame/puffer/internal/manifest"
 	"github.com/weknowyourgame/puffer/internal/wal"
 )
 
@@ -19,12 +20,22 @@ func runIndex(args []string) {
 	iters := fs.Int("iters", 25, "max k-means rounds")
 	fs.Parse(args)
 
-	st := store.NewStore(dataDir)
+	st := openStore()
 
 	// Replay in order: the last write to an id wins, a delete removes it.
 	state := make(map[string][]float32)
 	var seq uint64
-	err := wal.Replay(st, 0, func(s uint64, ops []wal.Operation) {
+
+	// Which manifest version we start from. Nothing yet = version 0.
+	var version uint64
+	cur, err := manifest.Latest(st)
+	if err == nil {
+		version = cur.Version
+	} else if !errors.Is(err, manifest.ErrNoManifest) {
+		log.Fatal(err)
+	}
+
+	err = wal.Replay(st, 0, func(s uint64, ops []wal.Operation) {
 		for _, op := range ops {
 			switch op.Type {
 			case wal.Upsert:
@@ -66,9 +77,21 @@ func runIndex(args []string) {
 		clusters = 1
 	}
 
+	// Index files first. Nobody uses them until the manifest points at them.
 	idx := index.Build(keys, data, dim, clusters, *iters)
-	if err := idx.Write(st, seq); err != nil {
+	dir, err := idx.Write(st, seq)
+	if err != nil {
 		log.Fatal(err)
 	}
-	fmt.Printf("indexed %d vectors into %d clusters, covers wal up to %d\n", len(keys), idx.K(), seq)
+
+	// Then the manifest. If another indexer published while we were building, we back off.
+	err = manifest.Publish(st, manifest.Manifest{Version: version + 1, Index: dir, IndexSeq: seq, Dim: dim, K: idx.K()})
+	if errors.Is(err, manifest.ErrConflict) {
+		fmt.Println("another indexer published manifest", version+1, "first, backing off")
+		return
+	}
+	if err != nil {
+		log.Fatal(err)
+	}
+	fmt.Printf("indexed %d vectors into %d clusters, covers wal up to %d, manifest %d\n", len(keys), idx.K(), seq, version+1)
 }
