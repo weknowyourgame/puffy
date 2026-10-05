@@ -2,8 +2,10 @@ package store
 
 import (
 	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
+	"sort"
 )
 
 type FileStore struct {
@@ -46,4 +48,55 @@ func (s *FileStore) Create(name string, data []byte) error {
 
 	_, err = file.Write(data)
 	return err
+}
+
+func (s *FileStore) Read(name string) ([]byte, error) {
+	return os.ReadFile(filepath.Join(s.root, name))
+}
+
+// ReadAt reads exactly n bytes starting at off.
+func (s *FileStore) ReadAt(name string, off int64, n int) ([]byte, error) {
+	file, err := os.Open(filepath.Join(s.root, name))
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+
+	b := make([]byte, n)
+	if _, err := file.ReadAt(b, off); err != nil {
+		return nil, err
+	}
+	return b, nil
+}
+
+// List returns every file under the prefix (e.g. "wal/"), sorted by name.
+// A prefix that doesn't exist yet is just empty.
+func (s *FileStore) List(p Prefix) ([]string, error) {
+	dir := filepath.Join(s.root, string(p))
+
+	var names []string
+	err := filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() {
+			return nil
+		}
+		rel, err := filepath.Rel(s.root, path)
+		if err != nil {
+			return err
+		}
+		names = append(names, filepath.ToSlash(rel))
+		return nil
+	})
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	// WalkDir already walks in lexical order, sort anyway so the contract is explicit
+	sort.Strings(names)
+	return names, nil
 }

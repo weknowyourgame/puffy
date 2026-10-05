@@ -15,6 +15,9 @@ type DB struct {
 	dim     int
 	mu      sync.RWMutex
 	metric  Metric
+	// ids that were upserted or deleted in this DB. The index uses it to
+	// ignore its own (older) copy of those ids.
+	touched map[string]struct{}
 }
 
 type Dimension int
@@ -41,6 +44,8 @@ func New(dim Dimension, m Metric) *DB {
 	return &DB{
 		vectors: make(map[string][]float32),
 		dim:     int(dim),
+		metric:  m,
+		touched: make(map[string]struct{}),
 	}
 }
 
@@ -51,6 +56,7 @@ func (db *DB) Upsert(v Vector) error {
 	db.mu.Lock()
 	defer db.mu.Unlock()
 	db.vectors[v.Key] = v.Values
+	db.touched[v.Key] = struct{}{}
 	return nil
 }
 
@@ -58,6 +64,15 @@ func (db *DB) Delete(key string) {
 	db.mu.Lock()
 	defer db.mu.Unlock()
 	delete(db.vectors, key)
+	db.touched[key] = struct{}{}
+}
+
+// Touched reports whether key was upserted or deleted in this DB.
+func (db *DB) Touched(key string) bool {
+	db.mu.RLock()
+	defer db.mu.RUnlock()
+	_, ok := db.touched[key]
+	return ok
 }
 
 func (db *DB) Count() int {
